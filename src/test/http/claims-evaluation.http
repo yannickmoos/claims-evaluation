@@ -1,0 +1,316 @@
+@host = http://localhost:8080
+
+### 1) Genehmigung – normaler Payout (amount - deductible = 400.00)
+# Erwartung: 200 OK, approved=true, payout=400.00, reason="Payout of 400.00"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-09-15",
+  "incidentType": "fire",
+  "amount": 500.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire", "theft", "accident"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Genehmigt mit korrektem Payout", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === true, "approved ist nicht true");
+        client.assert(response.body.payout === 400.00, "payout ist nicht 400.00");
+    });
+%}
+
+### 2) Genehmigung mit Deckelung (payable=1900.00 > limit=1000.00 → payout=1000.00)
+# Erwartung: 200 OK, approved=true, payout=1000.00, reason="Payout capped at coverage limit of 1000.00"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-09-15",
+  "incidentType": "fire",
+  "amount": 2000.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire", "theft"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Payout wird auf Deckungslimit gedeckelt", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === true, "approved ist nicht true");
+        client.assert(response.body.payout === 1000.00, "payout ist nicht auf 1000.00 gedeckelt");
+    });
+%}
+
+### 3) Ablehnung – Betrag <= Selbstbeteiligung
+# Erwartung: 200 OK, approved=false, reason enthält "does not exceed deductible"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-09-15",
+  "incidentType": "fire",
+  "amount": 100.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Abgelehnt wegen Selbstbeteiligung", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === false, "approved ist nicht false");
+    });
+%}
+
+### 4) Ablehnung – Schadenstyp nicht gedeckt
+# Erwartung: 200 OK, approved=false, reason enthält "not covered"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-09-15",
+  "incidentType": "flood",
+  "amount": 500.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire", "theft"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+### 5) Ablehnung – Schadendatum außerhalb des Versicherungszeitraums
+# Erwartung: 200 OK, approved=false, reason enthält "outside the policy period"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2030-01-01",
+  "incidentType": "fire",
+  "amount": 500.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+### 6) Validierungsfehler – Pflichtfelder fehlen / ungültig
+# Erwartung: 400 Bad Request, errorCode="VALIDATION_ERROR"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentType": "",
+  "amount": 0,
+  "coveredIncidentTypes": []
+}
+
+> {%
+    client.test("Validierung schlägt fehl", function () {
+        client.assert(response.status === 400, "Status ist nicht 400");
+        client.assert(response.body.errorCode === "VALIDATION_ERROR", "errorCode ist nicht VALIDATION_ERROR");
+    });
+%}
+
+###############################################################################
+# Grenzfälle
+###############################################################################
+
+### 7) Grenze – Schadendatum == Policenstart (inklusiv → gültig)
+# Erwartung: 200 OK, approved=true
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2024-01-01",
+  "incidentType": "fire",
+  "amount": 500.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Startdatum ist inklusiv", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === true, "approved ist nicht true");
+    });
+%}
+
+### 8) Grenze – Schadendatum == Policenende (inklusiv → gültig)
+# Erwartung: 200 OK, approved=true
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2026-12-31",
+  "incidentType": "fire",
+  "amount": 500.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Enddatum ist inklusiv", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === true, "approved ist nicht true");
+    });
+%}
+
+### 9) Grenze – einen Tag vor Policenstart (exklusiv → Ablehnung)
+# Erwartung: 200 OK, approved=false, reason enthält "outside the policy period"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2023-12-31",
+  "incidentType": "fire",
+  "amount": 500.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Tag vor Start wird abgelehnt", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === false, "approved ist nicht false");
+    });
+%}
+
+### 10) Grenze – Betrag exakt == Selbstbeteiligung (nicht > deductible → Ablehnung)
+# Erwartung: 200 OK, approved=false (Filter verlangt amount > deductible)
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-06-01",
+  "incidentType": "fire",
+  "amount": 100.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Betrag == Selbstbeteiligung wird abgelehnt", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === false, "approved ist nicht false");
+    });
+%}
+
+### 11) Grenze – Betrag minimal über Selbstbeteiligung (payout=0.01)
+# Erwartung: 200 OK, approved=true, payout=0.01
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-06-01",
+  "incidentType": "fire",
+  "amount": 100.01,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Minimal über Selbstbeteiligung wird genehmigt", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === true, "approved ist nicht true");
+        client.assert(response.body.payout === 0.01, "payout ist nicht 0.01");
+    });
+%}
+
+### 12) Grenze – zahlbarer Betrag exakt == Deckungslimit (nicht gedeckelt)
+# payable = 1100.00 - 100.00 = 1000.00 == coverageLimit → payout=1000.00, kein Capping
+# Erwartung: 200 OK, approved=true, payout=1000.00, reason="Payout of 1000.00"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-06-01",
+  "incidentType": "fire",
+  "amount": 1100.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Zahlbar == Limit ist nicht gedeckelt", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.payout === 1000.00, "payout ist nicht 1000.00");
+        client.assert(response.body.reason === "Payout of 1000.00", "reason zeigt fälschlich Capping an");
+    });
+%}
+
+### 13) Grenze – zahlbarer Betrag minimal über Deckungslimit (Capping)
+# payable = 1100.01 - 100.00 = 1000.01 > coverageLimit → payout=1000.00, Capping
+# Erwartung: 200 OK, approved=true, payout=1000.00, reason enthält "capped"
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-06-01",
+  "incidentType": "fire",
+  "amount": 1100.01,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 100.00,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Minimal über Limit wird gedeckelt", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.payout === 1000.00, "payout ist nicht auf 1000.00 gedeckelt");
+        client.assert(response.body.reason.indexOf("capped") !== -1, "reason enthält kein Capping");
+    });
+%}
+
+### 14) Grenze – Selbstbeteiligung == 0 (erlaubt, payout = amount)
+# Erwartung: 200 OK, approved=true, payout=500.00
+POST {{host}}/api/claims/evaluate
+Content-Type: application/json
+
+{
+  "incidentDate": "2025-06-01",
+  "incidentType": "fire",
+  "amount": 500.00,
+  "policyStartDate": "2024-01-01",
+  "policyEndDate": "2026-12-31",
+  "coveredIncidentTypes": ["fire"],
+  "deductible": 0,
+  "coverageLimit": 1000.00
+}
+
+> {%
+    client.test("Selbstbeteiligung 0 ist erlaubt", function () {
+        client.assert(response.status === 200, "Status ist nicht 200");
+        client.assert(response.body.approved === true, "approved ist nicht true");
+        client.assert(response.body.payout === 500.00, "payout ist nicht 500.00");
+    });
+%}
