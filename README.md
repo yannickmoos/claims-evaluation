@@ -58,18 +58,34 @@ payout  = min(payable, coverageLimit)   // Deckelung auf das Deckungslimit
 Die Bewertungslogik nutzt das **Chain-of-Responsibility-Pattern**:
 
 ```
-ClaimRequestDto ──(MapStruct)──► Claim + Policy
-                                      │
-                                      ▼
-                        ClaimEvaluationService
-                                      │
-             ┌────────────────────────┴───────────────────────┐
-             ▼ (@Order 1)      (@Order 2)        (@Order 3)    │  alle gültig
-     PolicyPeriodFilter ─► IncidentTypeFilter ─► DeductibleFilter ─► createFinalApproval()
-             │ invalid          │ invalid           │ invalid          │  (Payout + Capping)
-             └──────────────────┴───────────────────┴──────────────────┘
-                                      ▼
-                                ClaimDecision ──(MapStruct)──► ClaimResponseDto
+                ClaimRequestDto
+                       │ (MapStruct)
+                       ▼
+                 Claim + Policy
+                       │
+                       ▼
+            ClaimEvaluationService
+                       │
+                       ▼
+   ┌────────────────────────────────────────┐
+   │              Filterkette                │
+   │            (Short-Circuit)              │
+   ├────────────────────────────────────────┤
+   │  1. PolicyPeriodFilter   (@Order 1)     │ ─ invalid ─┐
+   │  2. IncidentTypeFilter   (@Order 2)     │ ─ invalid ─┤
+   │  3. DeductibleFilter     (@Order 3)     │ ─ invalid ─┤
+   └───────────────────┬────────────────────┘             │
+                       │ alle gültig                      │
+                       ▼                                  ▼
+             createFinalApproval()                    Ablehnung
+              (Payout + Capping)                  (approved = false)
+                       │                                  │
+                       └────────────────┬─────────────────┘
+                                        ▼
+                                  ClaimDecision
+                                        │ (MapStruct)
+                                        ▼
+                                  ClaimResponseDto
 ```
 
 - **Filter** sind Spring-Beans (`@Component` + `@Order`) und werden per **Dependency Injection**
