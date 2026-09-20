@@ -68,12 +68,12 @@ Die Bewertungslogik nutzt das **Chain-of-Responsibility-Pattern**:
                        │
                        ▼
    ┌────────────────────────────────────────┐
-   │              Filterkette                │
-   │            (Short-Circuit)              │
+   │              Filterkette               │
+   │            (Short-Circuit)             │
    ├────────────────────────────────────────┤
-   │  1. PolicyPeriodFilter   (@Order 1)     │ ─ invalid ─┐
-   │  2. IncidentTypeFilter   (@Order 2)     │ ─ invalid ─┤
-   │  3. DeductibleFilter     (@Order 3)     │ ─ invalid ─┤
+   │  1. PolicyPeriodFilter   (@Order 1)    │  ─ invalid ─┐
+   │  2. IncidentTypeFilter   (@Order 2)    │  ─ invalid ─┤
+   │  3. DeductibleFilter     (@Order 3)    │  ─ invalid ─┤
    └───────────────────┬────────────────────┘             │
                        │ alle gültig                      │
                        ▼                                  ▼
